@@ -23,7 +23,7 @@ jobs:
       - run: npm ci
 
       - name: Install coverage provider
-        run: npm install --no-save @vitest/coverage-v8
+        run: npm install --no-save @vitest/coverage-v8@^3.0.0
 
       - name: Run tests
         run: npx vitest run --coverage
