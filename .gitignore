@@ -2,3 +2,5 @@ node_modules/
 dist/
 bin/
 *.tgz
+coverage/
+.nyc_output/
