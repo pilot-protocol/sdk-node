@@ -22,8 +22,11 @@ jobs:
 
       - run: npm ci
 
+      - name: Install coverage provider
+        run: npm install --no-save @vitest/coverage-v8
+
       - name: Run tests
-        run: npm test
+        run: npx vitest run --coverage
         continue-on-error: true
 
       - name: Coverage summary
@@ -33,6 +36,15 @@ jobs:
             ls coverage/
             cat coverage/coverage-summary.json 2>/dev/null || true
           fi
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          directory: ./coverage
+          flags: unittests
+          name: sdk-node
+          fail_ci_if_error: false
 
       - uses: actions/upload-artifact@v4
         if: always()

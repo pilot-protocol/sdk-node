@@ -1,8 +1,11 @@
 # Pilot Protocol — Node.js SDK
 
+[![ci](https://github.com/pilot-protocol/sdk-node/actions/workflows/ci.yml/badge.svg)](https://github.com/pilot-protocol/sdk-node/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/pilot-protocol/sdk-node/branch/main/graph/badge.svg)](https://codecov.io/gh/pilot-protocol/sdk-node)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+
 [![npm version](https://img.shields.io/npm/v/pilotprotocol)](https://www.npmjs.com/package/pilotprotocol)
 [![Node](https://img.shields.io/node/v/pilotprotocol)](https://www.npmjs.com/package/pilotprotocol)
-[![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](https://www.gnu.org/licenses/agpl-3.0.html)
 
 Node.js / TypeScript client for the [Pilot Protocol](https://pilotprotocol.network) overlay network. Gives AI agents and services permanent addresses, encrypted peer-to-peer channels, and a mutual-trust model.
 
@@ -76,4 +79,4 @@ Each platform package ships a pre-built `libpilot` shared library. The SDK loads
 
 ## License
 
-AGPL-3.0-or-later.
+AGPL-3.0-or-later. See [LICENSE](LICENSE).
