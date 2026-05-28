@@ -88,7 +88,16 @@ function pkgBinDir(): string {
   // resorting to vi.spyOn on a live binding. Honored only when set.
   const override = process.env['PILOT_PKG_BIN_DIR'];
   if (override) return override;
-  return join(pkgBinRoot(), platformDirName());
+  const root = pkgBinRoot();
+  const dir = platformDirName();
+  const mainPath = join(root, dir);
+  if (existsSync(mainPath)) return mainPath;
+  // Fallback: optional platform sub-package installed by npm via
+  // optionalDependencies (e.g. pilotprotocol-darwin-arm64). These ship
+  // native Go binaries in their own bin/ directory.
+  const subPkgPath = resolve(root, '..', 'node_modules', `pilotprotocol-${dir}`, 'bin');
+  if (existsSync(subPkgPath) && existsSync(join(subPkgPath, BIN_NAMES[0]))) return subPkgPath;
+  return mainPath;
 }
 
 function runtimeRoot(): string {
