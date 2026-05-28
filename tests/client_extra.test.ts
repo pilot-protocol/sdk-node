@@ -524,3 +524,14 @@ describe('sendMessage / sendFile ack-read fallback', () => {
     d.close();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Wire-frame size caps (PILOT-103)
+// ---------------------------------------------------------------------------
+
+describe('wire-frame size caps', () => {
+  it('MAX_TOPIC_SIZE is 4 KiB and exported', async () => {
+    const mod = await import('../src/client.js');
+    expect(mod.MAX_TOPIC_SIZE).toBe(4096);
+  });
+});
