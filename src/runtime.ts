@@ -30,6 +30,7 @@ import {
   accessSync,
   constants as fsConstants,
 } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { homedir, arch as osArch, platform as osPlatform } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -219,20 +220,36 @@ async function probeDaemonLive(timeoutMs = 200): Promise<boolean> {
   });
 }
 
-/** Synchronous probe used by the seeder. Loops on a short setImmediate. */
+/** Synchronous probe used by the seeder.  Mirrors the async probe's
+ * net.Socket.connect logic via a Node child process so the result is
+ * consistent across platforms.  The old `nc -z -U` probe returned exit
+ * status 1 on macOS even for connectable sockets, causing the seeder to
+ * incorrectly believe the daemon was down.  (PILOT-186) */
 function probeDaemonLiveSync(): boolean {
   const sockPath = readSocketPath();
   if (!existsSync(sockPath)) return false;
-  // Best-effort sync: try connecting via a child process. Falls back to
-  // "assume not running" if we can't decide quickly.
+
+  // Use the same Node.js runtime and net.Socket.connect semantics as the
+  // async path — a child process is the only safe way to get a synchronous
+  // socket-connect result without relying on platform-specific nc(1).
   try {
-    const { spawnSync } = require('node:child_process') as typeof import('node:child_process');
-    // `nc -z -U <sock>` is the cleanest sync probe; fall back to true if nc is missing.
-    const r = spawnSync('nc', ['-z', '-U', sockPath], { timeout: 250 });
-    if (r.error) return existsSync(sockPath); // nc missing — be conservative
+    const escaped = sockPath.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const r = spawnSync(
+      process.execPath,
+      [
+        '-e',
+        `var n=require("net"),s=new n.Socket;` +
+        `s.setTimeout(250);` +
+        `s.on("error",()=>process.exit(1));` +
+        `s.on("connect",()=>{s.destroy();process.exit(0)});` +
+        `s.connect('${escaped}')`,
+      ],
+      { timeout: 500 },
+    );
+    if (r.error) return existsSync(sockPath); // node missing — conservative fallback
     return r.status === 0;
   } catch {
-    // Conservative: if a socket file is present, assume the daemon is up.
+    // spawnSync itself threw (shouldn't happen).  Conservative fallback.
     return existsSync(sockPath);
   }
 }
