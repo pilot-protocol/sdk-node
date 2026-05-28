@@ -37,6 +37,11 @@ export { PilotError } from './ffi.js';
 
 export const DEFAULT_SOCKET_PATH = '/tmp/pilot.sock';
 
+// Wire-frame safety caps: reject frames whose declared length exceeds
+// these limits BEFORE allocating memory.
+const MAX_PAYLOAD_SIZE = 1_048_576;   // 1 MiB — matches Pilot wire protocol max message
+export const MAX_TOPIC_SIZE = 4_096;   // 4 KiB — event-stream topic strings are short
+
 // Module-level singleton for the loaded library
 let _lib: PilotLib | null = null;
 
@@ -491,6 +496,9 @@ export class Driver {
         const ackHeader = conn.read(8);
         if (ackHeader && ackHeader.length === 8) {
           const ackLen = ackHeader.readUInt32BE(4);
+          if (ackLen > MAX_PAYLOAD_SIZE) {
+            return { sent: buf.length, type: msgType, target: addr };
+          }
           const ackPayload = conn.read(ackLen);
           if (ackPayload && ackPayload.length > 0) {
             const ackMsg = ackPayload.toString('utf-8');
@@ -542,6 +550,9 @@ export class Driver {
         const ackHeader = conn.read(8);
         if (ackHeader && ackHeader.length === 8) {
           const ackLen = ackHeader.readUInt32BE(4);
+          if (ackLen > MAX_PAYLOAD_SIZE) {
+            return { sent: fileData.length, filename, target: addr };
+          }
           const ackPayload = conn.read(ackLen);
           if (ackPayload && ackPayload.length > 0) {
             const ackMsg = ackPayload.toString('utf-8');
@@ -642,6 +653,7 @@ function readEventFrame(conn: Conn): { topic: string; data: Buffer } | null {
   const topicLenBuf = conn.read(2);
   if (!topicLenBuf || topicLenBuf.length < 2) return null;
   const topicLen = topicLenBuf.readUInt16BE(0);
+  if (topicLen > MAX_TOPIC_SIZE) return null;
 
   const topicBuf = conn.read(topicLen);
   if (!topicBuf || topicBuf.length < topicLen) return null;
@@ -650,6 +662,7 @@ function readEventFrame(conn: Conn): { topic: string; data: Buffer } | null {
   const payloadLenBuf = conn.read(4);
   if (!payloadLenBuf || payloadLenBuf.length < 4) return null;
   const payloadLen = payloadLenBuf.readUInt32BE(0);
+  if (payloadLen > MAX_PAYLOAD_SIZE) return null;
 
   const data = conn.read(payloadLen);
   if (!data || data.length < payloadLen) return null;
