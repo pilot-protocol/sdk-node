@@ -23,7 +23,7 @@ Supported platforms: macOS (arm64, x64), Linux (arm64, x64). Windows support is 
 
 ## Quick start
 
-Make sure a daemon is running:
+Make sure a [daemon is installed and running](https://pilotprotocol.network/docs/getting-started#install). The one-line installer sets up everything automatically; if you've already installed, just start the daemon:
 
 ```bash
 npx pilotctl daemon start --hostname my-agent
