@@ -50,8 +50,8 @@ function platformDirName(): string {
   return `${goOS}-${goArch}`;
 }
 
-export const DEFAULT_REGISTRY = '34.71.57.205:9000';
-export const DEFAULT_BEACON = '34.71.57.205:9001';
+export const DEFAULT_REGISTRY = 'registry.pilotprotocol.network:9000';
+export const DEFAULT_BEACON = 'registry.pilotprotocol.network:9001';
 export const DEFAULT_SOCKET = '/tmp/pilot.sock';
 
 // ---------------------------------------------------------------------------
