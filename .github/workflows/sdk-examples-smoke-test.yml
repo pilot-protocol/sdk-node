@@ -1,0 +1,41 @@
+name: SDK examples smoke test
+
+# PILOT-194: keeps the README quickstart honest. If the example breaks,
+# CI fails immediately rather than at the next user's cold-install.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Nightly catches drift from upstream daemon releases / registry state.
+    - cron: '0 6 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: README quickstart smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npm run build
+
+      - name: Run quickstart from README
+        run: |
+          # PILOT-197: extract the first ```ts / ```javascript fenced
+          # block from README.md and run it; this is the same block
+          # users copy-paste.
+          awk '/^```(ts|typescript|javascript|js)$/{flag=1;next}/^```$/{flag=0}flag' README.md > /tmp/quickstart.ts
+          if [ ! -s /tmp/quickstart.ts ]; then
+            echo "::error::no quickstart code block found in README.md"
+            exit 1
+          fi
+          # Compile and run as a one-shot. Loopback-only — no registry needed.
+          npx tsx /tmp/quickstart.ts
