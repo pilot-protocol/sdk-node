@@ -1,0 +1,39 @@
+name: publish
+
+# PILOT-203: npm publish workflow.
+#
+# Triggers on release published. Build the dist, then npm publish.
+# Optional-dependency platform packages (pilotprotocol-darwin-arm64,
+# etc.) are published separately by the release pipeline; this workflow
+# only publishes the main entry-point package.
+#
+# Required secret:
+#   NPM_TOKEN — npmjs.org automation token with publish rights on the
+#   pilotprotocol package.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # for npm provenance attestation
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+      - run: npm ci
+      - run: npm run build
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
