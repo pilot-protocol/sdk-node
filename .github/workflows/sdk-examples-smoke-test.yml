@@ -27,15 +27,41 @@ jobs:
       - run: npm ci
       - run: npm run build
 
-      - name: Run quickstart from README
+      - name: Type-check quickstart from README against built package
         run: |
           # PILOT-197: extract the first ```ts / ```javascript fenced
-          # block from README.md and run it; this is the same block
-          # users copy-paste.
-          awk '/^```(ts|typescript|javascript|js)$/{flag=1;next}/^```$/{flag=0}flag' README.md > /tmp/quickstart.ts
-          if [ ! -s /tmp/quickstart.ts ]; then
+          # block from README.md and confirm it type-checks against the
+          # built package — this catches the most common breakage
+          # (README drifts from public API after a rename / signature
+          # change). We TYPE-check, not execute: the quickstart calls
+          # `new Driver()` which dials a daemon socket, and CI has no
+          # daemon. Type-checking against the built dist/index.d.ts is
+          # a strong enough "did we break user copy-paste" signal.
+          mkdir -p smoke-tmp
+          awk '/^```(ts|typescript|javascript|js)$/{flag=1;next}/^```$/{flag=0}flag' README.md > smoke-tmp/quickstart.ts
+          if [ ! -s smoke-tmp/quickstart.ts ]; then
             echo "::error::no quickstart code block found in README.md"
             exit 1
           fi
-          # Compile and run as a one-shot. Loopback-only — no registry needed.
-          npx tsx /tmp/quickstart.ts
+          # Run tsc inside the repo so `import 'pilotprotocol'`
+          # resolves via paths→dist (set up below). The repo already
+          # has typescript installed from `npm ci`.
+          cat > smoke-tmp/tsconfig.json <<'EOF'
+          {
+            "compilerOptions": {
+              "noEmit": true,
+              "esModuleInterop": true,
+              "module": "nodenext",
+              "moduleResolution": "nodenext",
+              "target": "es2022",
+              "skipLibCheck": true,
+              "strict": true,
+              "paths": {
+                "pilotprotocol": ["../dist/index.d.ts"]
+              },
+              "baseUrl": "."
+            },
+            "include": ["quickstart.ts"]
+          }
+          EOF
+          npx tsc -p smoke-tmp/tsconfig.json
