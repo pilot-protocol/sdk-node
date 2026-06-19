@@ -49,12 +49,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/TeoSlayer/pilotprotocol",
+    "url": "https://github.com/pilot-protocol/pilotprotocol",
     "directory": "sdk/node"
   },
   "homepage": "https://pilotprotocol.network",
   "bugs": {
-    "url": "https://github.com/TeoSlayer/pilotprotocol/issues"
+    "url": "https://github.com/pilot-protocol/pilotprotocol/issues"
   },
   "dependencies": {
     "koffi": "^2.9.0"
