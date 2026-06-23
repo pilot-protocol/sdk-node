@@ -1,39 +1,249 @@
 name: publish
 
-# PILOT-203: npm publish workflow.
+# PILOT-203 / release fan-out: npm publish workflow.
 #
-# Triggers on release published. Build the dist, then npm publish.
-# Optional-dependency platform packages (pilotprotocol-darwin-arm64,
-# etc.) are published separately by the release pipeline; this workflow
-# only publishes the main entry-point package.
+# Triggers on:
+#   - workflow_dispatch with a `version` input — the canonical path. web4's
+#     release pipeline dispatches this at the daemon tag (e.g. 1.12.3) so the
+#     SDK publishes version-locked to the daemon, NOT to whatever stale
+#     version sits in package.json.
+#   - release published (legacy path for manual GitHub releases in this repo).
+#
+# The published package BUNDLES the native runtime under bin/<os>-<arch>/
+# (pilot-daemon, pilotctl, pilot-gateway, pilot-updater, libpilot.{so,dylib}),
+# which src/ffi.ts resolves at load time. The binaries are built from source:
+# libpilot (the CGO shared lib) lives in pilot-protocol/libpilot and builds
+# against a set of sibling Go modules — the same checkout set libpilot CI uses.
+# Each platform job uploads its bin/<os>-<arch>/ subtree; the publish job
+# merges all platforms into one multi-platform package and publishes once.
 #
 # Required secret:
 #   NPM_TOKEN — npmjs.org automation token with publish rights on the
 #   pilotprotocol package.
 
 on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (with or without leading v, e.g. 1.12.3)'
+        required: true
+        type: string
   release:
     types: [published]
-  workflow_dispatch:
 
 permissions:
   contents: read
 
+env:
+  PILOT_VERSION_RAW: ${{ inputs.version || github.event.release.tag_name }}
+
 jobs:
+  # Normalize the version once. `version` is bare (X.Y.Z) for package
+  # metadata; `ref` is the web4 git tag (always vX.Y.Z) for source checkout.
+  prep:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      ref: ${{ steps.v.outputs.ref }}
+    steps:
+      - id: v
+        shell: bash
+        run: |
+          RAW="${PILOT_VERSION_RAW}"
+          if [ -z "$RAW" ]; then
+            echo "::error::no version supplied (inputs.version / release tag both empty)"
+            exit 1
+          fi
+          BARE="${RAW#v}"
+          echo "version=$BARE" >> "$GITHUB_OUTPUT"
+          echo "ref=v$BARE"    >> "$GITHUB_OUTPUT"
+          echo "version=$BARE ref=v$BARE"
+
+  build-binaries:
+    needs: prep
+    name: Build binaries (${{ matrix.platform }}/${{ matrix.goarch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            goarch: amd64
+            subdir: linux-amd64
+          - os: macos-latest
+            platform: darwin
+            goarch: arm64
+            subdir: darwin-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout sdk-node
+        uses: actions/checkout@v4
+        with:
+          path: sdk-node
+
+      - name: Checkout libpilot
+        uses: actions/checkout@v4
+        with: { repository: pilot-protocol/libpilot, path: libpilot }
+      - name: Checkout web4
+        uses: actions/checkout@v4
+        with: { repository: pilot-protocol/pilotprotocol, path: web4, ref: "${{ needs.prep.outputs.ref }}" }
+      - name: Checkout common
+        uses: actions/checkout@v4
+        with: { repository: pilot-protocol/common, path: common }
+      - name: Checkout trustedagents
+        uses: actions/checkout@v4
+        with: { repository: pilot-protocol/trustedagents, path: trustedagents }
+      - name: Checkout handshake
+        uses: actions/checkout@v4
+        with: { repository: pilot-protocol/handshake, path: handshake }
+      - name: Checkout policy
+        uses: actions/checkout@v4
+        with: { repository: pilot-protocol/policy, path: policy }
+      - name: Checkout runtime
+        uses: actions/checkout@v4
+        with: { repository: pilot-protocol/runtime, path: runtime }
+      - name: Checkout skillinject
+        uses: actions/checkout@v4
+        with: { repository: pilot-protocol/skillinject, path: skillinject }
+      - name: Checkout webhook
+        uses: actions/checkout@v4
+        with: { repository: pilot-protocol/webhook, path: webhook }
+      - name: Checkout eventstream
+        uses: actions/checkout@v4
+        with: { repository: pilot-protocol/eventstream, path: eventstream }
+      - name: Checkout dataexchange
+        uses: actions/checkout@v4
+        with: { repository: pilot-protocol/dataexchange, path: dataexchange }
+      - name: Checkout updater
+        uses: actions/checkout@v4
+        with: { repository: pilot-protocol/updater, path: updater }
+      - name: Checkout gateway
+        uses: actions/checkout@v4
+        with: { repository: pilot-protocol/gateway, path: gateway }
+      - name: Checkout nameserver
+        uses: actions/checkout@v4
+        with: { repository: pilot-protocol/nameserver, path: nameserver }
+      - name: Checkout rendezvous
+        uses: actions/checkout@v4
+        with: { repository: pilot-protocol/rendezvous, path: rendezvous }
+      - name: Checkout beacon
+        uses: actions/checkout@v4
+        with: { repository: pilot-protocol/beacon, path: beacon }
+      - name: Checkout app-store
+        uses: actions/checkout@v4
+        with: { repository: pilot-protocol/app-store, path: app-store }
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: web4/go.mod
+
+      - name: Build native binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          ( cd libpilot && go mod tidy )
+
+          OS=${{ matrix.platform }}
+          case "$OS" in
+            linux) EXT=so ;;
+            darwin) EXT=dylib ;;
+            *) echo "::error::unsupported os $OS"; exit 1 ;;
+          esac
+
+          OUT="$GITHUB_WORKSPACE/sdk-node/bin/${{ matrix.subdir }}"
+          mkdir -p "$OUT"
+          LDFLAGS="-s -w -X main.version=${{ needs.prep.outputs.version }}"
+
+          ( cd web4 && CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o "$OUT/pilot-daemon"  ./cmd/daemon )
+          ( cd web4 && CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o "$OUT/pilotctl"       ./cmd/pilotctl )
+          ( cd web4 && CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o "$OUT/pilot-updater"  ./cmd/updater )
+          ( cd gateway && go mod tidy && CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o "$OUT/pilot-gateway" ./cmd/gateway ) \
+            || ( cd gateway && CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o "$OUT/pilot-gateway" . )
+          ( cd libpilot && CGO_ENABLED=1 go build -buildmode=c-shared -ldflags "-s -w" -o "$OUT/libpilot.$EXT" . )
+
+          if [ "$OS" = "darwin" ]; then
+            for b in "$OUT"/*; do codesign --force --deep --sign - "$b" || true; xattr -cr "$b" || true; done
+          fi
+          ls -lh "$OUT"
+
+      - name: Write .pilot-version marker (Linux only)
+        if: matrix.platform == 'linux'
+        run: echo "${{ needs.prep.outputs.version }}" > "$GITHUB_WORKSPACE/sdk-node/bin/.pilot-version"
+
+      - name: Upload bin subtree
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-bin-${{ matrix.subdir }}
+          path: sdk-node/bin/
+          retention-days: 7
+
   publish:
     name: Publish to npm
+    needs: [prep, build-binaries]
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write  # for npm provenance attestation
+      id-token: write  # npm provenance
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout sdk-node
+        uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
-      - run: npm ci
-      - run: npm run build
-      - run: npm publish --provenance --access public
+
+      - name: Download all bin subtrees
+        uses: actions/download-artifact@v4
+        with:
+          path: bin-artifacts
+
+      - name: Merge platform binaries into bin/
+        run: |
+          set -euo pipefail
+          mkdir -p bin
+          # Each artifact dir contains a bin/ subtree; merge them all.
+          for art in bin-artifacts/node-bin-*; do
+            cp -R "$art"/* bin/
+          done
+          echo "Merged bin/ layout:"
+          find bin -maxdepth 2 | sort
+
+      - name: Pin package.json version
+        run: |
+          VERSION="${{ needs.prep.outputs.version }}"
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='$VERSION';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+          echo "package.json version -> $VERSION"
+
+      - name: Build TypeScript
+        run: |
+          npm ci
+          npm run build
+
+      - name: Check if version exists on npm
+        id: check
+        run: |
+          if npm view pilotprotocol@${{ needs.prep.outputs.version }} version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::pilotprotocol ${{ needs.prep.outputs.version }} already on npm — skipping publish"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify package contents
+        run: npm pack --dry-run
+
+      - name: Publish to npm
+        if: steps.check.outputs.exists == 'false'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public
+
+      - name: Summary
+        run: |
+          {
+            echo "## Node SDK"
+            echo "- Version: \`${{ needs.prep.outputs.version }}\`"
+            echo "- Already present: \`${{ steps.check.outputs.exists }}\`"
+            echo "- Install: \`npm install pilotprotocol\`"
+          } >> "$GITHUB_STEP_SUMMARY"
