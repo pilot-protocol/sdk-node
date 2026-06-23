@@ -35,10 +35,32 @@ permissions:
   contents: read
 
 env:
-  PILOT_VERSION: ${{ inputs.version || github.event.release.tag_name }}
+  PILOT_VERSION_RAW: ${{ inputs.version || github.event.release.tag_name }}
 
 jobs:
+  # Normalize the version once. `version` is bare (X.Y.Z) for package
+  # metadata; `ref` is the web4 git tag (always vX.Y.Z) for source checkout.
+  prep:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      ref: ${{ steps.v.outputs.ref }}
+    steps:
+      - id: v
+        shell: bash
+        run: |
+          RAW="${PILOT_VERSION_RAW}"
+          if [ -z "$RAW" ]; then
+            echo "::error::no version supplied (inputs.version / release tag both empty)"
+            exit 1
+          fi
+          BARE="${RAW#v}"
+          echo "version=$BARE" >> "$GITHUB_OUTPUT"
+          echo "ref=v$BARE"    >> "$GITHUB_OUTPUT"
+          echo "version=$BARE ref=v$BARE"
+
   build-binaries:
+    needs: prep
     name: Build binaries (${{ matrix.platform }}/${{ matrix.goarch }})
     strategy:
       fail-fast: false
@@ -64,7 +86,7 @@ jobs:
         with: { repository: pilot-protocol/libpilot, path: libpilot }
       - name: Checkout web4
         uses: actions/checkout@v4
-        with: { repository: pilot-protocol/pilotprotocol, path: web4, ref: "${{ env.PILOT_VERSION }}" }
+        with: { repository: pilot-protocol/pilotprotocol, path: web4, ref: "${{ needs.prep.outputs.ref }}" }
       - name: Checkout common
         uses: actions/checkout@v4
         with: { repository: pilot-protocol/common, path: common }
@@ -115,17 +137,6 @@ jobs:
         with:
           go-version-file: web4/go.mod
 
-      - name: Normalize version
-        id: ver
-        shell: bash
-        run: |
-          VERSION="${PILOT_VERSION#v}"
-          if [ -z "$VERSION" ]; then
-            echo "::error::no version supplied (inputs.version / release tag both empty)"
-            exit 1
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
       - name: Build native binaries
         shell: bash
         run: |
@@ -141,7 +152,7 @@ jobs:
 
           OUT="$GITHUB_WORKSPACE/sdk-node/bin/${{ matrix.subdir }}"
           mkdir -p "$OUT"
-          LDFLAGS="-s -w -X main.version=${{ steps.ver.outputs.version }}"
+          LDFLAGS="-s -w -X main.version=${{ needs.prep.outputs.version }}"
 
           ( cd web4 && CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o "$OUT/pilot-daemon"  ./cmd/daemon )
           ( cd web4 && CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o "$OUT/pilotctl"       ./cmd/pilotctl )
@@ -157,7 +168,7 @@ jobs:
 
       - name: Write .pilot-version marker (Linux only)
         if: matrix.platform == 'linux'
-        run: echo "${{ steps.ver.outputs.version }}" > "$GITHUB_WORKSPACE/sdk-node/bin/.pilot-version"
+        run: echo "${{ needs.prep.outputs.version }}" > "$GITHUB_WORKSPACE/sdk-node/bin/.pilot-version"
 
       - name: Upload bin subtree
         uses: actions/upload-artifact@v4
@@ -168,7 +179,7 @@ jobs:
 
   publish:
     name: Publish to npm
-    needs: build-binaries
+    needs: [prep, build-binaries]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -198,14 +209,9 @@ jobs:
           echo "Merged bin/ layout:"
           find bin -maxdepth 2 | sort
 
-      - name: Normalize version + pin package.json
-        id: ver
+      - name: Pin package.json version
         run: |
-          VERSION="${PILOT_VERSION#v}"
-          if [ -z "$VERSION" ]; then
-            echo "::error::no version supplied"; exit 1
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          VERSION="${{ needs.prep.outputs.version }}"
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='$VERSION';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
           echo "package.json version -> $VERSION"
 
@@ -217,9 +223,9 @@ jobs:
       - name: Check if version exists on npm
         id: check
         run: |
-          if npm view pilotprotocol@${{ steps.ver.outputs.version }} version >/dev/null 2>&1; then
+          if npm view pilotprotocol@${{ needs.prep.outputs.version }} version >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::pilotprotocol ${{ steps.ver.outputs.version }} already on npm — skipping publish"
+            echo "::notice::pilotprotocol ${{ needs.prep.outputs.version }} already on npm — skipping publish"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
@@ -237,7 +243,7 @@ jobs:
         run: |
           {
             echo "## Node SDK"
-            echo "- Version: \`${{ steps.ver.outputs.version }}\`"
+            echo "- Version: \`${{ needs.prep.outputs.version }}\`"
             echo "- Already present: \`${{ steps.check.outputs.exists }}\`"
             echo "- Install: \`npm install pilotprotocol\`"
           } >> "$GITHUB_STEP_SUMMARY"
