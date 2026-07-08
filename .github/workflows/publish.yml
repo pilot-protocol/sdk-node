@@ -157,8 +157,14 @@ jobs:
           ( cd web4 && CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o "$OUT/pilot-daemon"  ./cmd/daemon )
           ( cd web4 && CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o "$OUT/pilotctl"       ./cmd/pilotctl )
           ( cd web4 && CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o "$OUT/pilot-updater"  ./cmd/updater )
-          ( cd gateway && go mod tidy && CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o "$OUT/pilot-gateway" ./cmd/gateway ) \
-            || ( cd gateway && CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o "$OUT/pilot-gateway" . )
+          # The gateway repo is a library (no ./cmd/gateway); the old fallback
+          # `go build .` shipped a Go object archive as "pilot-gateway".
+          # Build only when the cmd exists, skip cleanly otherwise.
+          if [ -d gateway/cmd/gateway ]; then
+            ( cd gateway && go mod tidy && CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o "$OUT/pilot-gateway" ./cmd/gateway )
+          else
+            echo "gateway repo has no cmd/gateway — skipping pilot-gateway binary"
+          fi
           ( cd libpilot && CGO_ENABLED=1 go build -buildmode=c-shared -ldflags "-s -w" -o "$OUT/libpilot.$EXT" . )
 
           if [ "$OS" = "darwin" ]; then
