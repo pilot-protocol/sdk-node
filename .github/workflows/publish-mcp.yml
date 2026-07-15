@@ -1,0 +1,75 @@
+name: publish-mcp
+
+# Publishes the `pilotprotocol-mcp` npm package (the Pilot Protocol MCP server,
+# source at pilot-protocol/pilot-mcp) using THIS repo's NPM_TOKEN.
+#
+# Why it lives here and not in pilot-protocol/pilot-mcp: the npm automation
+# token with publish rights on the `pilotprotocol*` packages is a secret on
+# sdk-node, and secret values can't be copied to another repo. So the pilot-mcp
+# release is driven from sdk-node, which holds the token.
+#
+# Manual, on-demand (workflow_dispatch). Checks out the pilot-mcp repo at the
+# requested ref, sanity-checks the server, and publishes. No --provenance:
+# provenance attests the *workflow* repo, which would mismatch pilot-mcp's
+# package.json repository field.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'pilot-mcp git ref to publish (branch, tag, or SHA)'
+        required: false
+        default: 'main'
+        type: string
+      dry_run:
+        description: 'Pack only, do not publish'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  publish-mcp:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout pilot-mcp
+        uses: actions/checkout@v4
+        with:
+          repository: pilot-protocol/pilot-mcp
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install
+        run: npm ci --omit=optional
+
+      - name: Sanity check (server starts, version resolves)
+        run: |
+          node cli.js --version
+          # Boot the stdio server and confirm it answers initialize.
+          node -e '
+            const { spawn } = require("child_process");
+            const p = spawn("node", ["cli.js"], { stdio: ["pipe","pipe","pipe"] });
+            let out = "";
+            p.stdout.on("data", d => out += d);
+            setTimeout(() => p.stdin.write(JSON.stringify({jsonrpc:"2.0",id:1,method:"initialize",params:{protocolVersion:"2024-11-05",capabilities:{},clientInfo:{name:"ci",version:"0"}}})+"\n"), 400);
+            setTimeout(() => {
+              const ok = /"serverInfo"/.test(out);
+              console.log("initialize ok:", ok);
+              p.kill(); process.exit(ok ? 0 : 1);
+            }, 2500);
+          '
+
+      - name: Pack (dry run)
+        run: npm pack --dry-run
+
+      - name: Publish
+        if: ${{ !inputs.dry_run }}
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
