@@ -101,12 +101,6 @@ function createFakeLib(): PilotLib & {
     _lastNetworkJoin: null as null | { networkId: number; token: string },
     _lastNetworkInvite: null as null | { networkId: number; targetNodeId: number },
     _lastNetworkRespond: null as null | { networkId: number; accept: number },
-    _lastManagedScore: null as null | {
-      networkId: number;
-      nodeId: number;
-      delta: number;
-      topic: string;
-    },
     _lastPolicySet: null as null | { networkId: number; policyJson: string },
     _lastMemberTagsSet: null as null | {
       networkId: number;
@@ -169,21 +163,8 @@ function createFakeLib(): PilotLib & {
       fake._lastNetworkRespond = { networkId, accept };
       return fake._jsonReturns['PilotNetworkRespondInvite'] ?? jsonOk({ status: 'responded' });
     },
-    PilotManagedScore(
-      _h: bigint,
-      networkId: number,
-      nodeId: number,
-      delta: number,
-      topic: string,
-    ) {
-      fake._lastManagedScore = { networkId, nodeId, delta, topic };
-      return fake._jsonReturns['PilotManagedScore'] ?? jsonOk({ status: 'ok' });
-    },
     PilotManagedStatus(_h: bigint, networkId: number) {
       return fake._jsonReturns['PilotManagedStatus'] ?? jsonOk({ network_id: networkId });
-    },
-    PilotManagedRankings(_h: bigint, _networkId: number) {
-      return fake._jsonReturns['PilotManagedRankings'] ?? jsonOk({ rankings: [] });
     },
     PilotManagedForceCycle(_h: bigint, _networkId: number) {
       return fake._jsonReturns['PilotManagedForceCycle'] ?? jsonOk({ status: 'cycled' });
@@ -952,34 +933,9 @@ describe('Driver networks', () => {
 // ---------------------------------------------------------------------------
 
 describe('Driver managed', () => {
-  it('managedScore captures all args', () => {
-    const d = new Driver();
-    d.managedScore(7, 4242, -3, 'spam');
-    expect(fakeLib._lastManagedScore).toEqual({
-      networkId: 7,
-      nodeId: 4242,
-      delta: -3,
-      topic: 'spam',
-    });
-    d.close();
-  });
-
-  it('managedScore default topic is empty', () => {
-    const d = new Driver();
-    d.managedScore(0, 1, 5);
-    expect(fakeLib._lastManagedScore?.topic).toBe('');
-    d.close();
-  });
-
   it('managedStatus echoes networkId', () => {
     const d = new Driver();
     expect(d.managedStatus(42)).toEqual({ network_id: 42 });
-    d.close();
-  });
-
-  it('managedRankings', () => {
-    const d = new Driver();
-    expect(d.managedRankings(42)).toHaveProperty('rankings');
     d.close();
   });
 
