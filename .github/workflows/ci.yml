@@ -53,3 +53,42 @@ jobs:
           path: coverage/
           retention-days: 30
           if-no-files-found: ignore
+
+  # Builds libpilot from source and runs loadLibrary() against it. koffi
+  # throws on the first symbol it cannot resolve, so this is the only job
+  # that notices when the SDK's binding list and libpilot's exports drift
+  # apart — every other test substitutes a fake library object.
+  ffi-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: sdk-node
+
+      - uses: actions/checkout@v4
+        with:
+          repository: pilot-protocol/libpilot
+          path: libpilot
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build libpilot
+        working-directory: libpilot
+        run: CGO_ENABLED=1 go build -buildmode=c-shared -o libpilot.so .
+
+      - name: Install deps
+        working-directory: sdk-node
+        run: npm ci
+
+      - name: Resolve FFI symbols against the freshly built library
+        working-directory: sdk-node
+        env:
+          PILOT_LIB_PATH: ${{ github.workspace }}/libpilot/libpilot.so
+          PILOT_REQUIRE_LIB: '1'
+        run: npx vitest run tests/ffi_smoke.test.ts

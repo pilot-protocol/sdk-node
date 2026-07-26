@@ -127,7 +127,6 @@ export interface PilotLib {
   PilotResolveHostname(h: bigint, hostname: string): string | null;
   PilotSetHostname(h: bigint, hostname: string): string | null;
   PilotSetVisibility(h: bigint, public_: number): string | null;
-  PilotSetTaskExec(h: bigint, enabled: number): string | null;
   PilotDeregister(h: bigint): string | null;
   PilotSetTags(h: bigint, tagsJson: string): string | null;
   PilotSetWebhook(h: bigint, url: string): string | null;
@@ -144,9 +143,7 @@ export interface PilotLib {
   PilotNetworkRespondInvite(h: bigint, networkId: number, accept: number): string | null;
 
   // Managed networks
-  PilotManagedScore(h: bigint, networkId: number, nodeId: number, delta: number, topic: string): string | null;
   PilotManagedStatus(h: bigint, networkId: number): string | null;
-  PilotManagedRankings(h: bigint, networkId: number): string | null;
   PilotManagedForceCycle(h: bigint, networkId: number): string | null;
   PilotManagedReconcile(h: bigint, networkId: number): string | null;
 
@@ -222,7 +219,6 @@ export function loadLibrary(path?: string): PilotLib {
   const rawResolveHostname = lib.func('PilotResolveHostname', 'void *', ['uint64', 'str']);
   const rawSetHostname = lib.func('PilotSetHostname', 'void *', ['uint64', 'str']);
   const rawSetVisibility = lib.func('PilotSetVisibility', 'void *', ['uint64', 'int']);
-  const rawSetTaskExec = lib.func('PilotSetTaskExec', 'void *', ['uint64', 'int']);
   const rawDeregister = lib.func('PilotDeregister', 'void *', ['uint64']);
   const rawSetTags = lib.func('PilotSetTags', 'void *', ['uint64', 'str']);
   const rawSetWebhook = lib.func('PilotSetWebhook', 'void *', ['uint64', 'str']);
@@ -235,9 +231,7 @@ export function loadLibrary(path?: string): PilotLib {
   const rawNetworkInvite = lib.func('PilotNetworkInvite', 'void *', ['uint64', 'uint16', 'uint32']);
   const rawNetworkPollInvites = lib.func('PilotNetworkPollInvites', 'void *', ['uint64']);
   const rawNetworkRespondInvite = lib.func('PilotNetworkRespondInvite', 'void *', ['uint64', 'uint16', 'int']);
-  const rawManagedScore = lib.func('PilotManagedScore', 'void *', ['uint64', 'uint16', 'uint32', 'int32', 'str']);
   const rawManagedStatus = lib.func('PilotManagedStatus', 'void *', ['uint64', 'uint16']);
-  const rawManagedRankings = lib.func('PilotManagedRankings', 'void *', ['uint64', 'uint16']);
   const rawManagedForceCycle = lib.func('PilotManagedForceCycle', 'void *', ['uint64', 'uint16']);
   const rawManagedReconcile = lib.func('PilotManagedReconcile', 'void *', ['uint64', 'uint16']);
   const rawPolicyGet = lib.func('PilotPolicyGet', 'void *', ['uint64', 'uint16']);
@@ -289,7 +283,6 @@ export function loadLibrary(path?: string): PilotLib {
     PilotResolveHostname: wrapJSON(rawResolveHostname),
     PilotSetHostname: wrapJSON(rawSetHostname),
     PilotSetVisibility: wrapJSON(rawSetVisibility),
-    PilotSetTaskExec: wrapJSON(rawSetTaskExec),
     PilotDeregister: wrapJSON(rawDeregister),
     PilotSetTags: wrapJSON(rawSetTags),
     PilotSetWebhook: wrapJSON(rawSetWebhook),
@@ -302,9 +295,7 @@ export function loadLibrary(path?: string): PilotLib {
     PilotNetworkInvite: wrapJSON(rawNetworkInvite),
     PilotNetworkPollInvites: wrapJSON(rawNetworkPollInvites),
     PilotNetworkRespondInvite: wrapJSON(rawNetworkRespondInvite),
-    PilotManagedScore: wrapJSON(rawManagedScore),
     PilotManagedStatus: wrapJSON(rawManagedStatus),
-    PilotManagedRankings: wrapJSON(rawManagedRankings),
     PilotManagedForceCycle: wrapJSON(rawManagedForceCycle),
     PilotManagedReconcile: wrapJSON(rawManagedReconcile),
     PilotPolicyGet: wrapJSON(rawPolicyGet),
@@ -320,11 +311,15 @@ export function loadLibrary(path?: string): PilotLib {
       const res = rawConnRead(h, bufSize);
       const err = decodeAndFree(res.err);
       let data: Buffer | null = null;
-      if (res.data && res.n > 0) {
-        // Decode n bytes from the C.CBytes-allocated pointer into a Buffer
-        const bytes: number[] = koffi.decode(res.data, 'uint8', res.n);
-        data = Buffer.from(bytes);
-        rawFree(res.data); // Free the C.CBytes allocation
+      if (res.data) {
+        if (res.n > 0) {
+          // Decode n bytes from the C.CBytes-allocated pointer into a Buffer
+          const bytes: number[] = koffi.decode(res.data, 'uint8', res.n);
+          data = Buffer.from(bytes);
+        }
+        // C.CBytes allocates even for a zero-length read, so the pointer is
+        // owned by us whenever it is non-null — free it regardless of n.
+        rawFree(res.data);
       }
       return { n: res.n as number, data, err };
     },

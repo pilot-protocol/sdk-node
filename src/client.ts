@@ -401,19 +401,9 @@ export class Driver {
 
   // -- Managed networks --
 
-  /** Adjust a peer's score in a managed network. */
-  managedScore(networkId: number, nodeId: number, delta: number, topic = ''): Record<string, unknown> {
-    return this._callJSON('PilotManagedScore', networkId, nodeId, delta, topic);
-  }
-
   /** Return the status of a managed network engine. */
   managedStatus(networkId: number): Record<string, unknown> {
     return this._callJSON('PilotManagedStatus', networkId);
-  }
-
-  /** Return ranked peers in a managed network. */
-  managedRankings(networkId: number): Record<string, unknown> {
-    return this._callJSON('PilotManagedRankings', networkId);
   }
 
   /** Force a prune/fill cycle in a managed network. */
