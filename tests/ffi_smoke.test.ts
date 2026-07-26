@@ -67,19 +67,21 @@ describe.skipIf(!libPath)('loadLibrary against a real libpilot', () => {
     expect(typeof lib.PilotConnRead).toBe('function');
   });
 
-  it('declares no symbol that is absent from src/ffi.ts', () => {
-    // Guards the inverse direction: a wrapper key with no matching
-    // lib.func() declaration would be undefined at call time.
+  it('exposes a callable wrapper for every declared symbol', () => {
+    // Guards the inverse direction: a lib.func() declaration with no
+    // matching wrapper key is unreachable from the Driver.
     const lib = loadLibrary(libPath as string);
     const src = readFileSync(join(repoRoot, 'src', 'ffi.ts'), 'utf8');
-    const declaredSymbols = new Set(
-      [...src.matchAll(/lib\.func\('([A-Za-z0-9_]+)'/g)].map((m) => m[1] as string),
-    );
-    expect(declaredSymbols.size).toBeGreaterThan(0);
+    const declaredSymbols = [...src.matchAll(/lib\.func\('([A-Za-z0-9_]+)'/g)]
+      .map((m) => m[1] as string)
+      // FreeString is used internally by the wrappers, not exposed.
+      .filter((name) => name !== 'FreeString');
+    expect(declaredSymbols.length).toBeGreaterThan(0);
 
-    const missing = Object.keys(lib).filter(
-      (key) => typeof (lib as Record<string, unknown>)[key] !== 'function',
+    const wrappers = lib as unknown as Record<string, unknown>;
+    const unwrapped = declaredSymbols.filter(
+      (name) => typeof wrappers[name] !== 'function',
     );
-    expect(missing).toEqual([]);
+    expect(unwrapped).toEqual([]);
   });
 });
