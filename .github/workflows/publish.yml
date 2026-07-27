@@ -65,15 +65,28 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # One job per <os>-<goarch> that src/ffi.ts platformSubdir() can ask
+        # for. Up to and including 1.13.6 only linux-amd64 and darwin-arm64
+        # were built, so `new Driver()` on arm64 Linux (Graviton, Ampere,
+        # Docker on Apple Silicon) and on Intel macOS threw
+        # "Cannot find libpilot.so" even though npm install had succeeded.
         include:
           - os: ubuntu-latest
             platform: linux
             goarch: amd64
             subdir: linux-amd64
-          - os: macos-latest
+          - os: ubuntu-24.04-arm
+            platform: linux
+            goarch: arm64
+            subdir: linux-arm64
+          - os: macos-14          # Apple Silicon
             platform: darwin
             goarch: arm64
             subdir: darwin-arm64
+          - os: macos-13          # Intel
+            platform: darwin
+            goarch: amd64
+            subdir: darwin-amd64
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout sdk-node
@@ -172,8 +185,10 @@ jobs:
           fi
           ls -lh "$OUT"
 
-      - name: Write .pilot-version marker (Linux only)
-        if: matrix.platform == 'linux'
+      # Written by exactly one job — the marker is platform-neutral and every
+      # artifact is merged into the same bin/ root.
+      - name: Write .pilot-version marker
+        if: matrix.subdir == 'linux-amd64'
         run: echo "${{ needs.prep.outputs.version }}" > "$GITHUB_WORKSPACE/sdk-node/bin/.pilot-version"
 
       - name: Upload bin subtree
